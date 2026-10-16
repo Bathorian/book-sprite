@@ -1,5 +1,27 @@
-[project]
-name = "booksprite"
-version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = []
+[tool.uv.workspace]
+members = ["backend"]
+
+[tool.uv.sources]
+booksprite = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "booksprite",
+    "pytest>=8.3",
+    "httpx2>=2.13",
+    "ruff>=0.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend/tests"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["booksprite", "conftest"]
