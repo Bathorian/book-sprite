@@ -26,6 +26,11 @@
   }
 }
 
+/* Scale the whole interface gently on large monitors: 16px up to ~1600px wide, 20px at 2400px+. */
+html {
+  font-size: clamp(16px, calc(8px + 0.5vw), 20px);
+}
+
 *,
 *::before,
 *::after {

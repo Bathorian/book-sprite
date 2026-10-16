@@ -15,6 +15,7 @@ import ReadingCompanion from '@/components/reader/ReadingCompanion.vue'
 import { warrior } from '@/companions'
 import type { TurnDirection } from '@/components/reader/swipe'
 import { useMediaQuery } from '@/composables/useMediaQuery'
+import { useRootScale } from '@/composables/useRootScale'
 
 // Each format's engine is large, so only download the one this book needs.
 const EpubReader = defineAsyncComponent(() => import('@/components/reader/EpubReader.vue'))
@@ -75,7 +76,15 @@ const companionOn = ref(loadSetting('reader.companion', 1, 2) === 1)
 const singlePage = useMediaQuery('(max-width: 700px), (max-height: 500px)')
 const shortScreen = useMediaQuery('(max-height: 500px)')
 const smallScreen = useMediaQuery('(max-width: 640px), (max-height: 700px)')
-const companionHeight = computed(() => (shortScreen.value ? 48 : smallScreen.value ? 72 : 96))
+// How much the interface is scaled up on large monitors (1 on normal screens).
+const rootScale = useRootScale()
+const companionHeight = computed(() => {
+  if (shortScreen.value) return 48
+  if (smallScreen.value) return 72
+  return rootScale.value >= 1.2 ? 120 : 96
+})
+/** EPUB text size: the chosen size, scaled up on large monitors like the rest of the UI. */
+const epubFontSize = computed(() => Math.round(FONT_SIZES[fontIndex.value]! * rootScale.value))
 
 watch(companionOn, (on) => {
   try {
@@ -187,14 +196,14 @@ onBeforeUnmount(() => {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
       </button>
 
-      <div class="page">
+      <div class="page" :class="{ 'single-column': book?.format === 'epub' && singlePage }">
         <p v-if="error" class="status">{{ error }}</p>
         <template v-else-if="book">
           <EpubReader
             v-if="book.format === 'epub'"
             ref="reader"
             :url="fileUrl(book.id)"
-            :font-size="FONT_SIZES[fontIndex]!"
+            :font-size="epubFontSize"
             :single-page="singlePage"
             @ready="onReady"
             @progress="progress = $event"
@@ -367,6 +376,10 @@ svg {
   max-width: 72rem;
   justify-self: center;
   padding-block: 1rem;
+}
+/* One page at a time: keep lines a comfortable book width instead of the full screen. */
+.page.single-column {
+  max-width: 46rem;
 }
 .turn {
   height: 100%;
@@ -551,7 +564,24 @@ svg {
 
 /* Notched phones in landscape: keep the page clear of the notch. */
 .reader {
+  /* Let the single column shrink below its content (long titles get "…" instead of
+     widening the whole reader past the screen). */
+  grid-template-columns: minmax(0, 1fr);
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Very narrow phones: tighten the header so the title keeps some room. */
+@media (max-width: 380px) {
+  .bar {
+    gap: 0;
+    padding-inline: 0.25rem;
+  }
+  .icon-btn {
+    width: 2.5rem;
+  }
+  .text-btn {
+    padding-inline: 0.4rem;
+  }
 }
 </style>
