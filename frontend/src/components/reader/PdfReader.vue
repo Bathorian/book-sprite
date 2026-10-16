@@ -4,6 +4,7 @@ import * as pdfjs from 'pdfjs-dist'
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { ReaderHandle, ReaderProgress, TocItem } from './types'
+import { createSwipe, tapZone, type TurnDirection } from './swipe'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -12,6 +13,7 @@ const emit = defineEmits<{
   ready: [toc: TocItem[]]
   progress: [progress: ReaderProgress]
   error: [message: string]
+  turn: [direction: TurnDirection]
 }>()
 
 const container = useTemplateRef<HTMLDivElement>('container')
@@ -23,6 +25,8 @@ let loadingTask: PDFDocumentLoadingTask | null = null
 let doc: PDFDocumentProxy | null = null
 let renderTask: RenderTask | null = null
 let resizeObserver: ResizeObserver | null = null
+
+const FOLIO_HEIGHT = 22 // px kept below the page for its number
 
 type OutlineNode = Awaited<ReturnType<PDFDocumentProxy['getOutline']>>[number]
 
@@ -43,7 +47,9 @@ async function buildToc(nodes: OutlineNode[], depth = 0): Promise<TocItem[]> {
   const items: TocItem[] = []
   for (const [i, node] of nodes.entries()) {
     const page = await resolvePage(node.dest)
-    if (page) items.push({ id: `${depth}-${i}-${page}`, label: node.title, depth, target: page })
+    if (page) {
+      items.push({ id: `${depth}-${i}-${page}`, label: node.title, depth, target: page, page })
+    }
     items.push(...(await buildToc(node.items ?? [], depth + 1)))
   }
   return items
@@ -54,8 +60,8 @@ async function render() {
   const page = await doc.getPage(pageNumber.value)
   const base = page.getViewport({ scale: 1 })
   const box = container.value.getBoundingClientRect()
-  // Fit the whole page in view at zoom 1; larger zooms scroll.
-  const fit = Math.min(box.width / base.width, box.height / base.height)
+  // Fit the whole page (plus its page number underneath) in view at zoom 1; larger zooms scroll.
+  const fit = Math.min(box.width / base.width, (box.height - FOLIO_HEIGHT) / base.height)
   const viewport = page.getViewport({ scale: fit * props.zoom })
   const ratio = window.devicePixelRatio || 1
 
@@ -80,6 +86,24 @@ async function render() {
     fraction: pageNumber.value / pageCount.value,
     label: `Page ${pageNumber.value} of ${pageCount.value}`,
   })
+}
+
+// Swipes and edge taps turn the page, but only at fit-to-screen zoom: when zoomed in,
+// the same gestures are needed to pan around the page.
+const swipe = createSwipe((direction) => emit('turn', direction))
+
+function onTouchStart(event: TouchEvent) {
+  if (props.zoom === 1) swipe.start(event)
+}
+
+function onTouchEnd(event: TouchEvent) {
+  if (props.zoom === 1) swipe.end(event)
+}
+
+function onTap(event: MouseEvent) {
+  if (props.zoom !== 1 || !container.value) return
+  const zone = tapZone(event.clientX, container.value.getBoundingClientRect())
+  if (zone) emit('turn', zone)
 }
 
 function goTo(target: string | number) {
@@ -121,8 +145,18 @@ defineExpose<ReaderHandle>({
 </script>
 
 <template>
-  <div ref="container" class="pdf-viewer" :class="{ zoomed: zoom > 1 }">
-    <canvas ref="canvas"></canvas>
+  <div
+    ref="container"
+    class="pdf-viewer"
+    :class="{ zoomed: zoom > 1 }"
+    @touchstart.passive="onTouchStart"
+    @touchend.passive="onTouchEnd"
+    @click="onTap"
+  >
+    <div class="sheet">
+      <canvas ref="canvas"></canvas>
+      <span v-if="pageCount" class="folio">{{ pageNumber }}</span>
+    </div>
   </div>
 </template>
 
@@ -138,6 +172,18 @@ defineExpose<ReaderHandle>({
 .pdf-viewer.zoomed {
   overflow: auto;
   align-items: flex-start;
+}
+.sheet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.folio {
+  height: 22px;
+  line-height: 22px;
+  font-size: 0.8rem;
+  font-variant-numeric: oldstyle-nums;
+  color: #8a7a63;
 }
 canvas {
   display: block;

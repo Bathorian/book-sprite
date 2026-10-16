@@ -9,7 +9,8 @@ from sqlmodel import Session, col, or_, select
 from booksprite.config import settings
 from booksprite.db import get_session
 from booksprite.models import Book, BookFormat, utcnow
-from booksprite.schemas import BookRead, BookUpdate
+from booksprite.routers.sprites import get_sprite_or_404
+from booksprite.schemas import BookRead, BookSpriteUpdate, BookUpdate
 from booksprite.services import storage
 from booksprite.services.metadata import InvalidBookError, detect_format, extract_metadata
 
@@ -106,6 +107,18 @@ def update_book(book_id: int, changes: BookUpdate, session: SessionDep) -> BookR
         book.title = title
     if "author" in data:
         book.author = (data["author"] or "").strip() or None
+    session.add(book)
+    session.commit()
+    session.refresh(book)
+    return BookRead.from_model(book)
+
+
+@router.put("/{book_id}/sprite")
+def set_book_sprite(book_id: int, body: BookSpriteUpdate, session: SessionDep) -> BookRead:
+    book = _get_book(session, book_id)
+    if body.sprite_id is not None:
+        get_sprite_or_404(session, body.sprite_id)
+    book.sprite_id = body.sprite_id
     session.add(book)
     session.commit()
     session.refresh(book)

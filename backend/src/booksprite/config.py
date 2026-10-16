@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     data_dir: Path = PROJECT_ROOT / "data"
     frontend_dist: Path = PROJECT_ROOT / "frontend" / "dist"
     max_upload_mb: int = 500
+    max_sprite_upload_mb: int = 20
 
     @property
     def database_url(self) -> str:
@@ -23,6 +24,10 @@ class Settings(BaseSettings):
     @property
     def covers_dir(self) -> Path:
         return self.data_dir / "covers"
+
+    @property
+    def sprites_dir(self) -> Path:
+        return self.data_dir / "sprites"
 
     @property
     def tmp_dir(self) -> Path:

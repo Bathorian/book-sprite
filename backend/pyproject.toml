@@ -12,6 +12,7 @@ dependencies = [
     "ebooklib>=0.20",
     "pypdf>=6.21.0",
     "alembic>=1.20.0",
+    "pillow>=12.3.0",
 ]
 
 [build-system]

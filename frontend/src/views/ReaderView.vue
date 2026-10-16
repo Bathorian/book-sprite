@@ -13,6 +13,8 @@ import { fileUrl, getBook, type Book } from '@/api/books'
 import type { ReaderHandle, ReaderProgress, TocItem } from '@/components/reader/types'
 import ReadingCompanion from '@/components/reader/ReadingCompanion.vue'
 import { warrior } from '@/companions'
+import type { TurnDirection } from '@/components/reader/swipe'
+import { useMediaQuery } from '@/composables/useMediaQuery'
 
 // Each format's engine is large, so only download the one this book needs.
 const EpubReader = defineAsyncComponent(() => import('@/components/reader/EpubReader.vue'))
@@ -67,9 +69,13 @@ function larger() {
 
 // Reading companion: on by default, remembered between visits.
 const companionOn = ref(loadSetting('reader.companion', 1, 2) === 1)
-const companionScale = window.matchMedia?.('(max-width: 640px), (max-height: 700px)').matches
-  ? 1.5
-  : 2
+
+// Screen-size rules, re-evaluated when a phone is rotated.
+// Phones (narrow, or short when held sideways) always get one page at a time.
+const singlePage = useMediaQuery('(max-width: 700px), (max-height: 500px)')
+const shortScreen = useMediaQuery('(max-height: 500px)')
+const smallScreen = useMediaQuery('(max-width: 640px), (max-height: 700px)')
+const companionHeight = computed(() => (shortScreen.value ? 48 : smallScreen.value ? 72 : 96))
 
 watch(companionOn, (on) => {
   try {
@@ -81,12 +87,18 @@ watch(companionOn, (on) => {
 
 function next() {
   reader.value?.next()
-  companion.value?.react('next')
+  companion.value?.react()
 }
 
 function prev() {
   reader.value?.prev()
-  companion.value?.react('prev')
+  companion.value?.react()
+}
+
+/** Swipes and edge taps from inside the book. */
+function onTurn(direction: TurnDirection) {
+  if (direction === 'next') next()
+  else prev()
 }
 
 function onReady(items: TocItem[]) {
@@ -183,11 +195,13 @@ onBeforeUnmount(() => {
             ref="reader"
             :url="fileUrl(book.id)"
             :font-size="FONT_SIZES[fontIndex]!"
+            :single-page="singlePage"
             @ready="onReady"
             @progress="progress = $event"
             @error="error = $event"
             @key="onKey"
-            @pointer="(x: number, y: number) => companion?.lookAt(x, y)"
+            @turn="onTurn"
+            @toc="toc = $event"
           />
           <PdfReader
             v-else
@@ -197,6 +211,7 @@ onBeforeUnmount(() => {
             @ready="onReady"
             @progress="progress = $event"
             @error="error = $event"
+            @turn="onTurn"
           />
         </template>
         <p v-if="!ready && !error" class="status loading">Opening book…</p>
@@ -208,12 +223,8 @@ onBeforeUnmount(() => {
     </main>
 
     <footer class="foot">
-      <div
-        v-if="companionOn"
-        class="lane"
-        :style="{ height: `${warrior.size * companionScale}px` }"
-      >
-        <ReadingCompanion ref="companion" :companion="warrior" :scale="companionScale" />
+      <div v-if="companionOn" class="lane" :style="{ height: `${companionHeight}px` }">
+        <ReadingCompanion ref="companion" :sprite="warrior" :height="companionHeight" />
       </div>
       <div class="track" aria-hidden="true">
         <div class="fill" :style="{ width: `${(progress.fraction ?? 0) * 100}%` }"></div>
@@ -230,7 +241,8 @@ onBeforeUnmount(() => {
       <ul>
         <li v-for="item in toc" :key="item.id">
           <button :style="{ paddingLeft: `${0.75 + item.depth * 1}rem` }" @click="jump(item)">
-            {{ item.label }}
+            <span class="toc-label">{{ item.label }}</span>
+            <span v-if="item.page" class="toc-page">{{ item.page }}</span>
           </button>
         </li>
       </ul>
@@ -392,6 +404,9 @@ svg {
   color: var(--ink-soft);
 }
 .where {
+  /* Reserve the line even while empty, so the page doesn't resize when text appears. */
+  min-height: 1.5em;
+  line-height: 1.5;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -452,7 +467,9 @@ svg {
   padding: 0;
 }
 .toc button {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
   width: 100%;
   padding: 0.45rem 1.25rem;
   border: none;
@@ -466,6 +483,25 @@ svg {
 .toc button:hover {
   background: rgb(59 48 36 / 0.07);
 }
+/* Dotted leader between the title and its page number, as in a printed contents page. */
+.toc-label {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 0.4rem;
+}
+.toc-label::after {
+  content: '';
+  flex: 1;
+  min-width: 1rem;
+  border-bottom: 1px dotted rgb(59 48 36 / 0.3);
+  transform: translateY(-0.3em);
+}
+.toc-page {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
 
 @media (max-width: 640px) {
   .stage {
@@ -474,5 +510,48 @@ svg {
   .page {
     padding-block: 0.5rem;
   }
+}
+
+/* Touch screens: pages turn by swiping or tapping the edges, so the arrow columns go and
+   the text gets the full width. Buttons grow to comfortable tap size (44px). */
+@media (hover: none) and (pointer: coarse) {
+  .stage {
+    grid-template-columns: 0.5rem 1fr 0.5rem;
+  }
+  .turn {
+    visibility: hidden;
+  }
+  .icon-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .text-btn {
+    height: 2.75rem;
+  }
+}
+
+/* Phones held sideways: very little height, so slim everything around the page. */
+@media (max-height: 500px) {
+  .bar {
+    padding-block: 0.15rem;
+    padding-top: calc(0.15rem + env(safe-area-inset-top, 0px));
+  }
+  .author {
+    display: none;
+  }
+  .page {
+    padding-block: 0.25rem;
+  }
+  .foot {
+    gap: 0.15rem 1rem;
+    padding-top: 0.15rem;
+    padding-bottom: calc(0.3rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Notched phones in landscape: keep the page clear of the notch. */
+.reader {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 </style>

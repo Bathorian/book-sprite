@@ -11,6 +11,7 @@ export interface Book {
   original_filename: string
   file_size: number
   has_cover: boolean
+  sprite_id: number | null
   added_at: string
   last_opened_at: string | null
 }

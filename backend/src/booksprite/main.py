@@ -7,12 +7,18 @@ from starlette.types import Scope
 
 from booksprite.config import settings
 from booksprite.db import init_db
-from booksprite.routers import books
+from booksprite.routers import books, sprites
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    for d in (settings.data_dir, settings.books_dir, settings.covers_dir, settings.tmp_dir):
+    for d in (
+        settings.data_dir,
+        settings.books_dir,
+        settings.covers_dir,
+        settings.sprites_dir,
+        settings.tmp_dir,
+    ):
         d.mkdir(parents=True, exist_ok=True)
     init_db(settings.database_url)
     yield
@@ -32,6 +38,7 @@ class SPAStaticFiles(StaticFiles):
 
 app = FastAPI(title="BookSprite", lifespan=lifespan)
 app.include_router(books.router, prefix="/api")
+app.include_router(sprites.router, prefix="/api")
 
 # In production, serve the built Vue app from the same process.
 if settings.frontend_dist.is_dir():

@@ -42,6 +42,32 @@ def cover_path(filename: str) -> Path:
     return settings.covers_dir / filename
 
 
+def sprite_frame_path(file_hash: str, direction: str) -> Path:
+    return settings.sprites_dir / file_hash / f"{direction}.png"
+
+
+def store_sprite_frames(file_hash: str, frames: dict[str, bytes]) -> None:
+    for direction, data in frames.items():
+        path = sprite_frame_path(file_hash, direction)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+def animation_frame_path(file_hash: str, index: int) -> Path:
+    return settings.sprites_dir / "animations" / file_hash / f"{index}.png"
+
+
+def store_animation_frames(file_hash: str, frames: list[bytes]) -> None:
+    for index, data in enumerate(frames):
+        path = animation_frame_path(file_hash, index)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+def delete_animation_frames(file_hash: str) -> None:
+    shutil.rmtree(animation_frame_path(file_hash, 0).parent, ignore_errors=True)
+
+
 def store_book(tmp_path: Path, filename: str) -> None:
     shutil.move(tmp_path, book_path(filename))
 

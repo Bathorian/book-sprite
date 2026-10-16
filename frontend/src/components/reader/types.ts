@@ -4,6 +4,8 @@ export interface TocItem {
   depth: number
   /** EPUB: section href. PDF: 1-based page number. */
   target: string | number
+  /** Page the entry starts on, once known. */
+  page?: number
 }
 
 export interface ReaderProgress {

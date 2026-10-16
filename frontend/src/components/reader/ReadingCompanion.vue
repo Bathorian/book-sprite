@@ -1,146 +1,133 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
-import { directionToward, type Companion, type Direction } from '@/companions'
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { frameFor, type Companion, type Direction } from '@/companions'
 
-const props = defineProps<{ companion: Companion; scale: number }>()
+/** `height` is the on-screen height in px; the width follows the sprite's aspect ratio. */
+const props = defineProps<{ sprite: Companion; height: number }>()
 
 const ground = useTemplateRef<HTMLDivElement>('ground')
 const x = ref(0) // centre of the sprite, px from the left of the ground
 const facing = ref<Direction>('south')
-const walking = ref(false)
-const hop = ref<'next' | 'prev' | null>(null)
+const shown = computed(() => frameFor(props.sprite.frames, facing.value))
+const displayWidth = computed(() => (props.sprite.width * props.height) / props.sprite.height)
+// Keep small pixel-art crisp; let larger artwork scale smoothly.
+const pixelArt = computed(() => props.sprite.height <= 128)
 
-const WALK_SPEED = 170 // px per second
-const START_DISTANCE = 36 // ignore small mouse moves so he doesn't fidget
-const IDLE_LOOK_MS = 4000 // after this long without the mouse moving, look at the reader
+// Page-turn animation, if the sprite has one. Its canvas may be larger than the standing
+// frame (room for kicks and leaps); the two canvases are aligned on their centres.
+const pageTurn = computed(() => props.sprite.animations.page_turn)
+const actionFrame = ref<number | null>(null)
+const actionStyle = computed(() => {
+  const animation = pageTurn.value
+  if (!animation) return {}
+  const scale = props.height / props.sprite.height
+  const width = animation.width * scale
+  const height = animation.height * scale
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    left: `${(displayWidth.value - width) / 2}px`,
+    bottom: `${(props.height - height) / 2}px`,
+  }
+})
+
+const WALK_SPEED = 60 // px per second: an unhurried patrol
 
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-let pointer: { x: number; y: number } | null = null
-let targetX = 0
+let heading: 1 | -1 = 1 // 1 = walking right (east), -1 = left (west)
 let frame = 0
 let lastTime = 0
-let idleTimer: ReturnType<typeof setTimeout> | undefined
-let hopTimer: ReturnType<typeof setTimeout> | undefined
-
-const spriteSize = () => props.companion.size * props.scale
+let actionTimer: ReturnType<typeof setTimeout> | undefined
 
 function bounds() {
   const width = ground.value?.clientWidth ?? 0
-  const half = spriteSize() / 2
+  const half = displayWidth.value / 2
   return { min: half, max: Math.max(half, width - half) }
 }
 
-function faceCursor() {
-  if (!pointer || !ground.value) return
-  const rect = ground.value.getBoundingClientRect()
-  // Aim from roughly the character's eyes.
-  const eyeX = rect.left + x.value
-  const eyeY = rect.bottom - spriteSize() * 0.75
-  facing.value = directionToward(pointer.x - eyeX, pointer.y - eyeY)
-}
-
+/** Walk steadily back and forth along the ground, pausing only while an animation plays. */
 function step(time: number) {
-  const dt = Math.min((time - lastTime) / 1000, 0.05)
+  const dt = Math.min((time - lastTime) / 1000, 0.05) // clamp so a background tab doesn't jump
   lastTime = time
-  const distance = targetX - x.value
-  if (Math.abs(distance) <= 2) {
-    x.value = targetX
-    walking.value = false
-    frame = 0
-    faceCursor()
-    return
-  }
-  walking.value = true
-  facing.value = distance > 0 ? 'east' : 'west'
-  x.value += Math.sign(distance) * Math.min(Math.abs(distance), WALK_SPEED * dt)
   frame = requestAnimationFrame(step)
-}
+  if (actionFrame.value !== null) return
 
-function walkTo(target: number) {
   const { min, max } = bounds()
-  targetX = Math.min(max, Math.max(min, target))
-  if (reducedMotion) {
-    x.value = targetX
-    faceCursor()
-    return
+  let next = x.value + heading * WALK_SPEED * dt
+  if (next >= max || next <= min) {
+    next = Math.min(max, Math.max(min, next))
+    heading = heading === 1 ? -1 : 1
   }
-  if (!frame) {
-    lastTime = performance.now()
-    frame = requestAnimationFrame(step)
+  x.value = next
+  facing.value = heading === 1 ? 'east' : 'west'
+}
+
+/** Play the page-turn animation once from the start (restarting it if it's already running). */
+function playPageTurn(durations: number[]) {
+  clearTimeout(actionTimer)
+  const advance = (index: number) => {
+    actionFrame.value = index
+    actionTimer = setTimeout(() => {
+      if (index + 1 < durations.length) advance(index + 1)
+      else actionFrame.value = null
+    }, durations[index])
   }
+  advance(0)
 }
 
-/** Called with viewport coordinates whenever the reader's mouse moves. */
-function lookAt(clientX: number, clientY: number) {
-  pointer = { x: clientX, y: clientY }
-  clearTimeout(idleTimer)
-  idleTimer = setTimeout(() => {
-    if (!walking.value) facing.value = 'south'
-  }, IDLE_LOOK_MS)
-
-  const rect = ground.value?.getBoundingClientRect()
-  if (!rect) return
-  const wanted = clientX - rect.left
-  if (walking.value || Math.abs(wanted - x.value) > START_DISTANCE) walkTo(wanted)
-  else faceCursor()
-}
-
-/** A small hop toward the page that was turned to. */
-function react(direction: 'next' | 'prev') {
-  if (walking.value) return
-  facing.value = direction === 'next' ? 'east' : 'west'
-  hop.value = null
-  clearTimeout(hopTimer)
-  requestAnimationFrame(() => {
-    hop.value = direction
-    hopTimer = setTimeout(() => (hop.value = null), 450)
-  })
-}
-
-function onPointerMove(event: PointerEvent) {
-  if (event.pointerType !== 'touch') lookAt(event.clientX, event.clientY)
-}
-
-function onResize() {
-  walkTo(targetX)
+/** React to a page turn with the sprite's page-turn animation. */
+function react() {
+  if (!reducedMotion && pageTurn.value) playPageTurn(pageTurn.value.durations)
 }
 
 onMounted(() => {
-  const { max } = bounds()
-  x.value = targetX = max // start in the bottom-right corner
-  window.addEventListener('pointermove', onPointerMove)
-  window.addEventListener('resize', onResize)
+  x.value = bounds().min
+  if (reducedMotion) return // stand still, facing the reader
+  lastTime = performance.now()
+  frame = requestAnimationFrame(step)
 })
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
-  clearTimeout(idleTimer)
-  clearTimeout(hopTimer)
-  window.removeEventListener('pointermove', onPointerMove)
-  window.removeEventListener('resize', onResize)
+  clearTimeout(actionTimer)
 })
 
-defineExpose({ lookAt, react })
+defineExpose({ react })
 </script>
 
 <template>
   <div ref="ground" class="ground" aria-hidden="true">
     <div
       class="companion"
-      :class="{ walking, [`hop-${hop}`]: hop }"
-      :style="{ '--size': `${spriteSize()}px`, transform: `translateX(${x - spriteSize() / 2}px)` }"
+      :class="{ walking: !reducedMotion && actionFrame === null, 'pixel-art': pixelArt }"
+      :style="{
+        width: `${displayWidth}px`,
+        height: `${height}px`,
+        transform: `translateX(${x - displayWidth / 2}px)`,
+      }"
     >
       <div class="shadow"></div>
-      <img
-        v-for="(url, direction) in companion.frames"
-        v-show="direction === facing"
-        :key="direction"
-        :src="url"
-        :width="spriteSize()"
-        :height="spriteSize()"
-        alt=""
-        draggable="false"
-      />
+      <div v-show="actionFrame === null" class="pose">
+        <img
+          v-for="(url, direction) in sprite.frames"
+          v-show="direction === shown"
+          :key="direction"
+          :src="url"
+          alt=""
+          draggable="false"
+        />
+      </div>
+      <!-- Always rendered (hidden) so every frame is loaded before the first page turn. -->
+      <div v-if="pageTurn" v-show="actionFrame !== null" class="action" :style="actionStyle">
+        <img
+          v-for="(url, index) in pageTurn.frames"
+          v-show="index === actionFrame"
+          :key="url"
+          :src="url"
+          alt=""
+          draggable="false"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -155,18 +142,29 @@ defineExpose({ lookAt, react })
   position: absolute;
   bottom: 0;
   left: 0;
-  width: var(--size);
-  height: var(--size);
   will-change: transform;
+}
+.pose,
+.action {
+  position: absolute;
+}
+.pose {
+  inset: 0;
 }
 .companion img {
   position: absolute;
   inset: 0;
-  image-rendering: pixelated;
-  /* The faint blue-white spirit light from the character's description. */
-  filter: drop-shadow(0 0 3px rgb(170 210 255 / 0.55));
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+}
+.pose img {
   animation: breathe 2.4s steps(2, jump-none) infinite;
   transform-origin: 50% 100%;
+}
+.pixel-art img {
+  image-rendering: pixelated;
 }
 .shadow {
   position: absolute;
@@ -179,13 +177,9 @@ defineExpose({ lookAt, react })
   filter: blur(1px);
 }
 
-/* No walk-cycle frames ship with this sprite, so suggest steps with a bob. */
-.walking img {
-  animation: stride 0.32s steps(2, jump-none) infinite;
-}
-.hop-next img,
-.hop-prev img {
-  animation: hop 0.45s ease-out;
+/* Sprites have no walk-cycle frames, so suggest steps with a bob. */
+.walking .pose img {
+  animation: stride 0.4s steps(2, jump-none) infinite;
 }
 
 @keyframes breathe {
@@ -204,29 +198,9 @@ defineExpose({ lookAt, react })
     transform: translateY(-3px);
   }
 }
-@keyframes hop {
-  0% {
-    transform: translateY(0) scale(1, 1);
-  }
-  15% {
-    transform: translateY(0) scale(1.06, 0.92);
-  }
-  45% {
-    transform: translateY(-14px) scale(0.96, 1.05);
-  }
-  80% {
-    transform: translateY(0) scale(1.04, 0.95);
-  }
-  100% {
-    transform: translateY(0) scale(1, 1);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .companion img,
-  .walking img,
-  .hop-next img,
-  .hop-prev img {
+  .pose img,
+  .walking .pose img {
     animation: none;
   }
 }
