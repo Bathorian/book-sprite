@@ -17,7 +17,6 @@ class FileTooLargeError(ValueError):
 
 def save_to_temp(source: BinaryIO, max_bytes: int) -> tuple[Path, str, int]:
     """Stream an upload to a temp file, returning (path, sha256, size)."""
-    settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = settings.tmp_dir / uuid.uuid4().hex
     digest = hashlib.sha256()
     size = 0
@@ -44,12 +43,10 @@ def cover_path(filename: str) -> Path:
 
 
 def store_book(tmp_path: Path, filename: str) -> None:
-    settings.books_dir.mkdir(parents=True, exist_ok=True)
     shutil.move(tmp_path, book_path(filename))
 
 
 def store_cover(data: bytes, filename: str) -> None:
-    settings.covers_dir.mkdir(parents=True, exist_ok=True)
     cover_path(filename).write_bytes(data)
 
 

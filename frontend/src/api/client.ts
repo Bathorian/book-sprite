@@ -2,7 +2,6 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public detail?: unknown,
   ) {
     super(message)
   }
@@ -27,16 +26,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     } catch {
       // Non-JSON error body.
     }
-    throw new ApiError(
-      response.status,
-      errorMessage(detail, `Request failed (${response.status})`),
-      detail,
-    )
+    throw new ApiError(response.status, errorMessage(detail, `Request failed (${response.status})`))
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
-}
-
-export function getHealth(): Promise<{ status: string }> {
-  return apiFetch('/health')
 }

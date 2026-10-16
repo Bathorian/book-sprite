@@ -1,6 +1,6 @@
 import { apiFetch } from './client'
 
-export type BookFormat = 'epub' | 'pdf'
+type BookFormat = 'epub' | 'pdf'
 export type BookSort = 'added' | 'title' | 'author' | 'opened'
 
 export interface Book {
@@ -26,6 +26,10 @@ export function listBooks(params: { q?: string; sort?: BookSort } = {}): Promise
   if (params.sort) search.set('sort', params.sort)
   const qs = search.toString()
   return apiFetch(`/books${qs ? `?${qs}` : ''}`)
+}
+
+export function getBook(id: number): Promise<Book> {
+  return apiFetch(`/books/${id}`)
 }
 
 export function uploadBook(file: File): Promise<Book> {

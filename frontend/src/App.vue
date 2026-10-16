@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
+
+const route = useRoute()
 </script>
 
 <template>
-  <header class="app-header">
-    <RouterLink to="/" class="brand">BookSprite</RouterLink>
-  </header>
-  <main class="app-main">
-    <RouterView />
-  </main>
+  <RouterView v-if="route.meta.fullscreen" />
+  <template v-else>
+    <header class="app-header">
+      <RouterLink to="/" class="brand">BookSprite</RouterLink>
+    </header>
+    <main class="app-main">
+      <RouterView />
+    </main>
+  </template>
 </template>
 
 <style scoped>

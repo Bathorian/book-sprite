@@ -3,9 +3,9 @@ import { ref } from 'vue'
 import * as api from '@/api/books'
 import type { Book, BookSort, BookUpdate } from '@/api/books'
 
-export type UploadStatus = 'pending' | 'uploading' | 'done' | 'error'
+type UploadStatus = 'pending' | 'uploading' | 'done' | 'error'
 
-export interface UploadItem {
+interface UploadItem {
   key: number
   name: string
   status: UploadStatus

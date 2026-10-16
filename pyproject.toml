@@ -7,8 +7,6 @@ booksprite = { workspace = true }
 [dependency-groups]
 dev = [
     "booksprite",
-    "pytest>=8.3",
-    "httpx2>=2.13",
     "ruff>=0.8",
 ]
 
@@ -19,9 +17,5 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
-[tool.pytest.ini_options]
-testpaths = ["backend/tests"]
-pythonpath = ["backend/tests"]
-
 [tool.ruff.lint.isort]
-known-first-party = ["booksprite", "conftest"]
+known-first-party = ["booksprite"]
