@@ -1,0 +1,19 @@
+[project]
+name = "booksprite"
+version = "0.1.0"
+description = "BookSprite ebook reader backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.18",
+    "sqlmodel>=0.0.48",
+    "ebooklib>=0.20",
+    "pypdf>=6.21.0",
+    "alembic>=1.20.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.12"]
+build-backend = "uv_build"
