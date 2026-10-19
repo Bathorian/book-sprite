@@ -1,0 +1,93 @@
+:root {
+  --bg: #fafaf7;
+  --surface: #ffffff;
+  --text: #1f1f1f;
+  --muted: #6b6b6b;
+  --border: #e0e0da;
+  --accent: #3b5bdb;
+  --accent-text: #ffffff;
+  --ok: #2e7d32;
+  --danger: #c62828;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161616;
+    --surface: #1f1f1f;
+    --text: #e8e8e8;
+    --muted: #9a9a9a;
+    --border: #2f2f2f;
+    --accent: #7b93f2;
+    --accent-text: #10131c;
+    --ok: #66bb6a;
+    --danger: #ef5350;
+    color-scheme: dark;
+  }
+}
+
+/* Scale the whole interface gently on large monitors: 16px up to ~1600px wide, 20px at 2400px+. */
+html {
+  font-size: clamp(16px, calc(8px + 0.5vw), 20px);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+button,
+select,
+input[type='search'] {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}

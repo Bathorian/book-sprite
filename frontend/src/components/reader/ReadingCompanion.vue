@@ -1,0 +1,343 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { frameFor, type Companion, type CompanionAnimation, type Direction } from '@/companions'
+
+/** `height` is the on-screen height in px; the width follows the sprite's aspect ratio. */
+const props = defineProps<{ sprite: Companion; height: number }>()
+
+const ground = useTemplateRef<HTMLDivElement>('ground')
+const x = ref(0) // centre of the sprite, px from the left of the ground
+const facing = ref<Direction>('south')
+const shown = computed(() => frameFor(props.sprite.frames, facing.value))
+const displayWidth = computed(() => (props.sprite.width * props.height) / props.sprite.height)
+// Keep small pixel-art crisp; let larger artwork scale smoothly.
+const pixelArt = computed(() => props.sprite.height <= 128)
+
+// One-shot animations (page turn, sitting down), if the sprite has them. Their canvas may be
+// larger than the standing frame (room for kicks and leaps); the canvases are aligned on
+// their centres.
+type ActionName = keyof Companion['animations']
+const animations = computed(
+  () =>
+    Object.entries(props.sprite.animations).filter(([, animation]) => animation) as [
+      ActionName,
+      CompanionAnimation,
+    ][],
+)
+const action = ref<ActionName | null>(null)
+const actionFrame = ref<number | null>(null)
+/** Paused on the animation's last frame (sitting) rather than returning to the pose. */
+const holding = ref(false)
+
+function actionStyle(animation: CompanionAnimation) {
+  const scale = props.height / props.sprite.height
+  const width = animation.width * scale
+  const height = animation.height * scale
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    left: `${(displayWidth.value - width) / 2}px`,
+    bottom: `${(props.height - height) / 2}px`,
+  }
+}
+
+const WALK_SPEED = 60 // px per second: an unhurried patrol
+const WAIT_AFTER_MS = 5000 // on the same page this long: stop and look at the reader
+
+/** Standing still facing the reader, waiting for the page to be turned. */
+const waiting = ref(false)
+/** "Move on!" bubble: shown while hovering him (mouse) or briefly after tapping him (touch). */
+const bubbleTapped = ref(false)
+let bubbleTimer: ReturnType<typeof setTimeout> | undefined
+
+function onTapCompanion(event: PointerEvent) {
+  if (event.pointerType === 'mouse') return // mice get the hover instead
+  bubbleTapped.value = true
+  clearTimeout(bubbleTimer)
+  bubbleTimer = setTimeout(() => (bubbleTapped.value = false), 2000)
+}
+
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+let heading: 1 | -1 = 1 // 1 = walking right (east), -1 = left (west)
+let frame = 0
+let lastTime = 0
+let actionTimer: ReturnType<typeof setTimeout> | undefined
+let waitTimer: ReturnType<typeof setTimeout> | undefined
+
+/** (Re)start the countdown to waiting; called on mount and on every page turn. */
+function startWaitCountdown() {
+  clearTimeout(waitTimer)
+  waiting.value = false
+  bubbleTapped.value = false
+  waitTimer = setTimeout(() => {
+    waiting.value = true
+    facing.value = 'south' // turn to the reader: "time to turn the page?"
+    // ...then sit down and stay seated until the page is turned.
+    if (props.sprite.animations.sit_down) playAction('sit_down', { hold: true })
+  }, WAIT_AFTER_MS)
+}
+
+function bounds() {
+  const width = ground.value?.clientWidth ?? 0
+  const half = displayWidth.value / 2
+  return { min: half, max: Math.max(half, width - half) }
+}
+
+/** Walk steadily back and forth; stand still while animating or waiting for a page turn. */
+function step(time: number) {
+  const dt = Math.min((time - lastTime) / 1000, 0.05) // clamp so a background tab doesn't jump
+  lastTime = time
+  frame = requestAnimationFrame(step)
+  if (actionFrame.value !== null || waiting.value) return
+
+  const { min, max } = bounds()
+  let next = x.value + heading * WALK_SPEED * dt
+  if (next >= max || next <= min) {
+    next = Math.min(max, Math.max(min, next))
+    heading = heading === 1 ? -1 : 1
+  }
+  x.value = next
+  facing.value = heading === 1 ? 'east' : 'west'
+}
+
+/**
+ * Play an animation once from the start, replacing whatever is running. With `hold`, stay on
+ * its last frame afterwards instead of returning to the standing pose.
+ */
+function playAction(name: ActionName, { hold = false } = {}) {
+  const durations = props.sprite.animations[name]!.durations
+  clearTimeout(actionTimer)
+  action.value = name
+  holding.value = false
+  const advance = (index: number) => {
+    actionFrame.value = index
+    if (index + 1 === durations.length && hold) {
+      holding.value = true
+      return
+    }
+    actionTimer = setTimeout(() => {
+      if (index + 1 < durations.length) advance(index + 1)
+      else stopAction()
+    }, durations[index])
+  }
+  advance(0)
+}
+
+function stopAction() {
+  clearTimeout(actionTimer)
+  action.value = null
+  actionFrame.value = null
+  holding.value = false
+}
+
+/** React to a page turn: stand up, play the page-turn animation, then carry on patrolling. */
+function react() {
+  if (reducedMotion) return
+  startWaitCountdown()
+  if (props.sprite.animations.page_turn) playAction('page_turn')
+  else stopAction()
+}
+
+onMounted(() => {
+  x.value = bounds().min
+  if (reducedMotion) return // stand still, facing the reader
+  lastTime = performance.now()
+  frame = requestAnimationFrame(step)
+  startWaitCountdown()
+})
+
+onBeforeUnmount(() => {
+  cancelAnimationFrame(frame)
+  clearTimeout(actionTimer)
+  clearTimeout(waitTimer)
+  clearTimeout(bubbleTimer)
+})
+
+defineExpose({ react })
+</script>
+
+<template>
+  <div ref="ground" class="ground" aria-hidden="true">
+    <div
+      class="companion"
+      :class="{
+        walking: !reducedMotion && actionFrame === null && !waiting,
+        waiting,
+        'show-bubble': bubbleTapped,
+        'pixel-art': pixelArt,
+      }"
+      :style="{
+        width: `${displayWidth}px`,
+        height: `${height}px`,
+        transform: `translateX(${x - displayWidth / 2}px)`,
+      }"
+      @pointerdown="onTapCompanion"
+    >
+      <div v-if="waiting" class="bubble">Move on!</div>
+      <div class="shadow"></div>
+      <div v-show="actionFrame === null" class="pose">
+        <img
+          v-for="(url, direction) in sprite.frames"
+          v-show="direction === shown"
+          :key="direction"
+          :src="url"
+          alt=""
+          draggable="false"
+        />
+      </div>
+      <!-- Always rendered (hidden) so every frame is loaded before it's first played. -->
+      <div
+        v-for="[name, animation] in animations"
+        v-show="name === action"
+        :key="name"
+        class="action"
+        :class="{ holding: holding && name === action }"
+        :style="actionStyle(animation)"
+      >
+        <img
+          v-for="(url, index) in animation.frames"
+          v-show="name === action && index === actionFrame"
+          :key="url"
+          :src="url"
+          alt=""
+          draggable="false"
+        />
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.ground {
+  position: relative;
+  height: 100%;
+  pointer-events: none;
+}
+.companion {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  will-change: transform;
+}
+/* Only reachable by the pointer while he stands waiting for the reader. */
+.companion.waiting {
+  pointer-events: auto;
+  cursor: default;
+}
+
+/* Speech bubble above his head, in the reader's ink-on-paper style. */
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  z-index: 1;
+  padding: 0.3em 0.7em;
+  border: 2px solid #3b3024;
+  border-radius: 8px;
+  background: #fbf6ea;
+  color: #3b3024;
+  font-family: 'Literata', Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgb(40 30 15 / 0.18);
+  opacity: 0;
+  transform: translate(-50%, 6px) scale(0.85);
+  transform-origin: 50% 100%;
+  transition:
+    opacity 0.15s ease,
+    transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1);
+  pointer-events: none;
+}
+/* The tail, pointing down at him. */
+.bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-right: 2px solid #3b3024;
+  border-bottom: 2px solid #3b3024;
+  transform: translate(-50%, -5px) rotate(45deg);
+}
+.companion.show-bubble .bubble {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+/* Hover only where there's a real pointer: touch browsers keep :hover "stuck" after a tap,
+   so phones use the timed tap instead. */
+@media (hover: hover) {
+  .companion.waiting:hover .bubble {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+.pose,
+.action {
+  position: absolute;
+}
+.pose {
+  inset: 0;
+}
+.companion img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+}
+.pose img,
+.action.holding img {
+  animation: breathe 2.4s steps(2, jump-none) infinite;
+  transform-origin: 50% 100%;
+}
+.pixel-art img {
+  image-rendering: pixelated;
+}
+.shadow {
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: -3px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(59 48 36 / 0.22);
+  filter: blur(1px);
+}
+
+/* Sprites have no walk-cycle frames, so suggest steps with a bob. */
+.walking .pose img {
+  animation: stride 0.4s steps(2, jump-none) infinite;
+}
+
+@keyframes breathe {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-1px) scaleY(1.01);
+  }
+}
+@keyframes stride {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble {
+    transition: opacity 0.15s ease;
+    transform: translate(-50%, 0);
+  }
+  .pose img,
+  .action.holding img,
+  .walking .pose img {
+    animation: none;
+  }
+}
+</style>

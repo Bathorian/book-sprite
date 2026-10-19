@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.env
+
+# Node
+node_modules/
+frontend/dist/
+
+# App data (books, covers, sqlite db)
+data/
+
+# IDE
+.idea/workspace.xml
