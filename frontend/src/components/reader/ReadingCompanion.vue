@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
-import { frameFor, type Companion, type Direction } from '@/companions'
+import { frameFor, type Companion, type CompanionAnimation, type Direction } from '@/companions'
 
 /** `height` is the on-screen height in px; the width follows the sprite's aspect ratio. */
 const props = defineProps<{ sprite: Companion; height: number }>()
@@ -13,13 +13,23 @@ const displayWidth = computed(() => (props.sprite.width * props.height) / props.
 // Keep small pixel-art crisp; let larger artwork scale smoothly.
 const pixelArt = computed(() => props.sprite.height <= 128)
 
-// Page-turn animation, if the sprite has one. Its canvas may be larger than the standing
-// frame (room for kicks and leaps); the two canvases are aligned on their centres.
-const pageTurn = computed(() => props.sprite.animations.page_turn)
+// One-shot animations (page turn, sitting down), if the sprite has them. Their canvas may be
+// larger than the standing frame (room for kicks and leaps); the canvases are aligned on
+// their centres.
+type ActionName = keyof Companion['animations']
+const animations = computed(
+  () =>
+    Object.entries(props.sprite.animations).filter(([, animation]) => animation) as [
+      ActionName,
+      CompanionAnimation,
+    ][],
+)
+const action = ref<ActionName | null>(null)
 const actionFrame = ref<number | null>(null)
-const actionStyle = computed(() => {
-  const animation = pageTurn.value
-  if (!animation) return {}
+/** Paused on the animation's last frame (sitting) rather than returning to the pose. */
+const holding = ref(false)
+
+function actionStyle(animation: CompanionAnimation) {
   const scale = props.height / props.sprite.height
   const width = animation.width * scale
   const height = animation.height * scale
@@ -29,7 +39,7 @@ const actionStyle = computed(() => {
     left: `${(displayWidth.value - width) / 2}px`,
     bottom: `${(props.height - height) / 2}px`,
   }
-})
+}
 
 const WALK_SPEED = 60 // px per second: an unhurried patrol
 const WAIT_AFTER_MS = 5000 // on the same page this long: stop and look at the reader
@@ -62,6 +72,8 @@ function startWaitCountdown() {
   waitTimer = setTimeout(() => {
     waiting.value = true
     facing.value = 'south' // turn to the reader: "time to turn the page?"
+    // ...then sit down and stay seated until the page is turned.
+    if (props.sprite.animations.sit_down) playAction('sit_down', { hold: true })
   }, WAIT_AFTER_MS)
 }
 
@@ -88,24 +100,42 @@ function step(time: number) {
   facing.value = heading === 1 ? 'east' : 'west'
 }
 
-/** Play the page-turn animation once from the start (restarting it if it's already running). */
-function playPageTurn(durations: number[]) {
+/**
+ * Play an animation once from the start, replacing whatever is running. With `hold`, stay on
+ * its last frame afterwards instead of returning to the standing pose.
+ */
+function playAction(name: ActionName, { hold = false } = {}) {
+  const durations = props.sprite.animations[name]!.durations
   clearTimeout(actionTimer)
+  action.value = name
+  holding.value = false
   const advance = (index: number) => {
     actionFrame.value = index
+    if (index + 1 === durations.length && hold) {
+      holding.value = true
+      return
+    }
     actionTimer = setTimeout(() => {
       if (index + 1 < durations.length) advance(index + 1)
-      else actionFrame.value = null
+      else stopAction()
     }, durations[index])
   }
   advance(0)
 }
 
-/** React to a page turn: play the page-turn animation, then carry on patrolling. */
+function stopAction() {
+  clearTimeout(actionTimer)
+  action.value = null
+  actionFrame.value = null
+  holding.value = false
+}
+
+/** React to a page turn: stand up, play the page-turn animation, then carry on patrolling. */
 function react() {
   if (reducedMotion) return
   startWaitCountdown()
-  if (pageTurn.value) playPageTurn(pageTurn.value.durations)
+  if (props.sprite.animations.page_turn) playAction('page_turn')
+  else stopAction()
 }
 
 onMounted(() => {
@@ -155,11 +185,18 @@ defineExpose({ react })
           draggable="false"
         />
       </div>
-      <!-- Always rendered (hidden) so every frame is loaded before the first page turn. -->
-      <div v-if="pageTurn" v-show="actionFrame !== null" class="action" :style="actionStyle">
+      <!-- Always rendered (hidden) so every frame is loaded before it's first played. -->
+      <div
+        v-for="[name, animation] in animations"
+        v-show="name === action"
+        :key="name"
+        class="action"
+        :class="{ holding: holding && name === action }"
+        :style="actionStyle(animation)"
+      >
         <img
-          v-for="(url, index) in pageTurn.frames"
-          v-show="index === actionFrame"
+          v-for="(url, index) in animation.frames"
+          v-show="name === action && index === actionFrame"
           :key="url"
           :src="url"
           alt=""
@@ -252,7 +289,8 @@ defineExpose({ react })
   object-fit: contain;
   object-position: bottom;
 }
-.pose img {
+.pose img,
+.action.holding img {
   animation: breathe 2.4s steps(2, jump-none) infinite;
   transform-origin: 50% 100%;
 }
@@ -297,6 +335,7 @@ defineExpose({ react })
     transform: translate(-50%, 0);
   }
   .pose img,
+  .action.holding img,
   .walking .pose img {
     animation: none;
   }

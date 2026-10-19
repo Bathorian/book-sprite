@@ -13,6 +13,7 @@ export type Direction = (typeof DIRECTIONS)[number]
 
 /** A one-shot animation, drawn centred on the companion's standing frame. */
 export interface CompanionAnimation {
+  /** Canvas size in the standing frame's pixels (frame images may be higher-resolution). */
   width: number
   height: number
   /** Milliseconds per frame. */
@@ -27,7 +28,11 @@ export interface Companion {
   height: number
   /** Frame URL per direction it can face. */
   frames: Partial<Record<Direction, string>>
-  animations: { page_turn?: CompanionAnimation }
+  animations: {
+    page_turn?: CompanionAnimation
+    /** Played when he gives up waiting; he holds the last frame until the page turns. */
+    sit_down?: CompanionAnimation
+  }
 }
 
 function directionFrames(files: Record<string, string>): Partial<Record<Direction, string>> {
@@ -62,6 +67,19 @@ export const warrior: Companion = {
       durations: [200, 200, 200, 200, 200, 200],
       frames: orderedFrames(
         import.meta.glob<string>('./warrior/page-turn/*.png', {
+          eager: true,
+          query: '?url',
+          import: 'default',
+        }),
+      ),
+    },
+    sit_down: {
+      // 96px frames drawn at twice the standing frame's scale.
+      width: 48,
+      height: 48,
+      durations: [140, 140, 140, 140, 140, 140, 140, 700, 180, 180, 180, 180],
+      frames: orderedFrames(
+        import.meta.glob<string>('./warrior/sit-down/*.png', {
           eager: true,
           query: '?url',
           import: 'default',
